@@ -35,13 +35,13 @@ import matplotlib.pyplot as plt
 random.seed(9001)
 matplotlib.use("Agg")
 
-__author__ = "Your Name"
+__author__ = "Elif Maya Gungor"
 __copyright__ = "Universite Paris Diderot"
-__credits__ = ["Your Name"]
+__credits__ = ["Elif Maya Gungor"]
 __license__ = "GPL"
 __version__ = "1.0.0"
-__maintainer__ = "Your Name"
-__email__ = "your@email.fr"
+__maintainer__ = "Elif Maya Gungor"
+__email__ = "mayagungor05@gmail.com"
 __status__ = "Developpement"
 
 

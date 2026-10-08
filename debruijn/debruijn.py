@@ -384,12 +384,24 @@ def main() -> None:  # pragma: no cover
     # Get arguments
     args = get_arguments()
 
+    # 1. Read the file and build the graph
+    kmer_dict = build_kmer_dict(args.fastq_file, args.kmer_size)
+    graph = build_graph(kmer_dict)
+    # 2. Solve bubbles
+    graph = simplify_bubbles(graph)
+    # 3. Solve entry and out tips
+    graph = solve_entry_tips(graph, get_starting_nodes(graph))
+    graph = solve_out_tips(graph, get_sink_nodes(graph))
+    # 4. Write the contigs
+    contigs = get_contigs(graph, get_starting_nodes(graph), get_sink_nodes(graph))
+    save_contigs(contigs, args.output_file)
+
     # Fonctions de dessin du graphe
     # A decommenter si vous souhaitez visualiser un petit
     # graphe
     # Plot the graph
-    # if args.graphimg_file:
-    #     draw_graph(graph, args.graphimg_file)
+    if args.graphimg_file:
+        draw_graph(graph, args.graphimg_file)
 
 
 if __name__ == "__main__":  # pragma: no cover

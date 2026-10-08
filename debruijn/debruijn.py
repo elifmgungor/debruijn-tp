@@ -99,9 +99,12 @@ def read_fastq(fastq_file: Path) -> Iterator[str]:
     :return: A generator object that iterate the read sequences.
     """
     with open(fastq_file, "r", encoding="utf-8") as fastq:
-        # A fastq record is 4 lines: identifier, sequence, "+", quality
-        for _, sequence, _, _ in zip(fastq, fastq, fastq, fastq):
-            yield sequence.strip()
+        # Chaque lecture occupe quatre lignes dans le fichier FASTQ.
+        for identifier in fastq:
+            sequence = next(fastq).strip()
+            next(fastq)  # Ligne +
+            next(fastq)  # Qualites
+            yield sequence
 
 
 def cut_kmer(read: str, kmer_size: int) -> Iterator[str]:
@@ -123,7 +126,10 @@ def build_kmer_dict(fastq_file: Path, kmer_size: int) -> Dict[str, int]:
     kmer_dict = {}
     for read in read_fastq(fastq_file):
         for kmer in cut_kmer(read, kmer_size):
-            kmer_dict[kmer] = kmer_dict.get(kmer, 0) + 1
+            if kmer in kmer_dict:
+                kmer_dict[kmer] += 1
+            else:
+                kmer_dict[kmer] = 1
     return kmer_dict
 
 
@@ -135,7 +141,9 @@ def build_graph(kmer_dict: Dict[str, int]) -> DiGraph:
     """
     graph = DiGraph()
     for kmer, count in kmer_dict.items():
-        graph.add_edge(kmer[:-1], kmer[1:], weight=count)
+        prefix = kmer[:-1]
+        suffix = kmer[1:]
+        graph.add_edge(prefix, suffix, weight=count)
     return graph
 
 
@@ -185,7 +193,10 @@ def select_best_path(
         best_index = path_length.index(max(path_length))
     else:
         best_index = randint(0, len(path_list) - 1)
-    unwanted_paths = [path for i, path in enumerate(path_list) if i != best_index]
+    unwanted_paths = []
+    for i, path in enumerate(path_list):
+        if i != best_index:
+            unwanted_paths.append(path)
     return remove_paths(graph, unwanted_paths, delete_entry_node, delete_sink_node)
 
 
@@ -221,26 +232,17 @@ def simplify_bubbles(graph: DiGraph) -> DiGraph:
     :param graph: (nx.DiGraph) A directed graph object
     :return: (nx.DiGraph) A directed graph object
     """
-    bubble = False
-    ancestor_node = descendant_node = None
     for node in graph.nodes:
         predecessors = list(graph.predecessors(node))
-        if len(predecessors) > 1:
-            for i, node_i in enumerate(predecessors):
-                for node_j in predecessors[i + 1 :]:
-                    ancestor_node = lowest_common_ancestor(graph, node_i, node_j)
-                    if ancestor_node is not None:
-                        descendant_node = node
-                        bubble = True
-                        break
-                if bubble:
-                    break
-        if bubble:
-            break
-    # The simplification removes nodes from the graph:
-    # a recursive approach is needed with networkx
-    if bubble:
-        graph = simplify_bubbles(solve_bubble(graph, ancestor_node, descendant_node))
+        for i in range(len(predecessors)):
+            for j in range(i + 1, len(predecessors)):
+                ancestor = lowest_common_ancestor(
+                    graph, predecessors[i], predecessors[j]
+                )
+                if ancestor is not None:
+                    graph = solve_bubble(graph, ancestor, node)
+                    # Le graphe a change : on recommence la recherche.
+                    return simplify_bubbles(graph)
     return graph
 
 
@@ -253,12 +255,11 @@ def solve_entry_tips(graph: DiGraph, starting_nodes: List[str]) -> DiGraph:
     """
     for node in graph.nodes:
         if len(list(graph.predecessors(node))) > 1:
-            path_list = [
-                path
-                for start in starting_nodes
-                if start in graph and has_path(graph, start, node)
-                for path in all_simple_paths(graph, start, node)
-            ]
+            path_list = []
+            for start in starting_nodes:
+                if start in graph and has_path(graph, start, node):
+                    for path in all_simple_paths(graph, start, node):
+                        path_list.append(path)
             if len(path_list) > 1:
                 graph = select_best_path(
                     graph,
@@ -281,12 +282,11 @@ def solve_out_tips(graph: DiGraph, ending_nodes: List[str]) -> DiGraph:
     """
     for node in graph.nodes:
         if len(list(graph.successors(node))) > 1:
-            path_list = [
-                path
-                for end in ending_nodes
-                if end in graph and has_path(graph, node, end)
-                for path in all_simple_paths(graph, node, end)
-            ]
+            path_list = []
+            for end in ending_nodes:
+                if end in graph and has_path(graph, node, end):
+                    for path in all_simple_paths(graph, node, end):
+                        path_list.append(path)
             if len(path_list) > 1:
                 graph = select_best_path(
                     graph,
@@ -306,7 +306,11 @@ def get_starting_nodes(graph: DiGraph) -> List[str]:
     :param graph: (nx.DiGraph) A directed graph object
     :return: (list) A list of all nodes without predecessors
     """
-    return [node for node in graph.nodes if not any(graph.predecessors(node))]
+    starting_nodes = []
+    for node in graph.nodes:
+        if graph.in_degree(node) == 0:
+            starting_nodes.append(node)
+    return starting_nodes
 
 
 def get_sink_nodes(graph: DiGraph) -> List[str]:
@@ -315,7 +319,11 @@ def get_sink_nodes(graph: DiGraph) -> List[str]:
     :param graph: (nx.DiGraph) A directed graph object
     :return: (list) A list of all nodes without successors
     """
-    return [node for node in graph.nodes if not any(graph.successors(node))]
+    ending_nodes = []
+    for node in graph.nodes:
+        if graph.out_degree(node) == 0:
+            ending_nodes.append(node)
+    return ending_nodes
 
 
 def get_contigs(
@@ -333,7 +341,10 @@ def get_contigs(
         for end in ending_nodes:
             if has_path(graph, start, end):
                 for path in all_simple_paths(graph, start, end):
-                    contig = path[0] + "".join(node[-1] for node in path[1:])
+                    contig = path[0]
+                    # Les noeuds se chevauchent : on ajoute la derniere base.
+                    for node in path[1:]:
+                        contig += node[-1]
                     contigs.append((contig, len(contig)))
     return contigs
 
@@ -384,22 +395,17 @@ def main() -> None:  # pragma: no cover
     # Get arguments
     args = get_arguments()
 
-    # 1. Read the file and build the graph
+    # Construction du graphe a partir des lectures
     kmer_dict = build_kmer_dict(args.fastq_file, args.kmer_size)
     graph = build_graph(kmer_dict)
-    # 2. Solve bubbles
+    # Suppression des bulles et des branches courtes
     graph = simplify_bubbles(graph)
-    # 3. Solve entry and out tips
     graph = solve_entry_tips(graph, get_starting_nodes(graph))
     graph = solve_out_tips(graph, get_sink_nodes(graph))
-    # 4. Write the contigs
+    # Reconstruction des sequences et ecriture du fichier FASTA
     contigs = get_contigs(graph, get_starting_nodes(graph), get_sink_nodes(graph))
     save_contigs(contigs, args.output_file)
 
-    # Fonctions de dessin du graphe
-    # A decommenter si vous souhaitez visualiser un petit
-    # graphe
-    # Plot the graph
     if args.graphimg_file:
         draw_graph(graph, args.graphimg_file)
 

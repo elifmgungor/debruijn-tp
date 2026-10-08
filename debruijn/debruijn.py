@@ -71,7 +71,7 @@ def get_arguments():  # pragma: no cover
     """
     # Parsing arguments
     parser = argparse.ArgumentParser(
-        description=__doc__, usage="{0} -h".format(sys.argv[0])
+        description=__doc__, usage=f"{sys.argv[0]} -h"
     )
     parser.add_argument(
         "-i", dest="fastq_file", type=isfile, required=True, help="Fastq file"
@@ -100,10 +100,18 @@ def read_fastq(fastq_file: Path) -> Iterator[str]:
     """
     with open(fastq_file, "r", encoding="utf-8") as fastq:
         # Chaque lecture occupe quatre lignes dans le fichier FASTQ.
-        for identifier in fastq:
-            sequence = next(fastq).strip()
-            next(fastq)  # Ligne +
-            next(fastq)  # Qualites
+        for record_number, identifier in enumerate(fastq, start=1):
+            sequence = next(fastq, "")
+            separator = next(fastq, "")
+            qualities = next(fastq, "")
+            if not sequence or not separator or not qualities:
+                raise ValueError(f"Incomplete FASTQ record {record_number}")
+            sequence = sequence.rstrip("\r\n")
+            qualities = qualities.rstrip("\r\n")
+            if not identifier.startswith("@") or not separator.startswith("+"):
+                raise ValueError(f"Invalid FASTQ record {record_number}")
+            if len(sequence) != len(qualities):
+                raise ValueError(f"Sequence/quality length mismatch in record {record_number}")
             yield sequence
 
 
@@ -169,7 +177,7 @@ def remove_paths(
     return graph
 
 
-def select_best_path(
+def select_best_path(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     graph: DiGraph,
     path_list: List[List[str]],
     path_length: List[int],
@@ -234,11 +242,9 @@ def simplify_bubbles(graph: DiGraph) -> DiGraph:
     """
     for node in graph.nodes:
         predecessors = list(graph.predecessors(node))
-        for i in range(len(predecessors)):
-            for j in range(i + 1, len(predecessors)):
-                ancestor = lowest_common_ancestor(
-                    graph, predecessors[i], predecessors[j]
-                )
+        for i, predecessor in enumerate(predecessors):
+            for other in predecessors[i + 1 :]:
+                ancestor = lowest_common_ancestor(graph, predecessor, other)
                 if ancestor is not None:
                     graph = solve_bubble(graph, ancestor, node)
                     # Le graphe a change : on recommence la recherche.

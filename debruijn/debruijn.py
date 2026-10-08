@@ -251,7 +251,25 @@ def solve_entry_tips(graph: DiGraph, starting_nodes: List[str]) -> DiGraph:
     :param starting_nodes: (list) A list of starting nodes
     :return: (nx.DiGraph) A directed graph object
     """
-    pass
+    for node in graph.nodes:
+        if len(list(graph.predecessors(node))) > 1:
+            path_list = [
+                path
+                for start in starting_nodes
+                if start in graph and has_path(graph, start, node)
+                for path in all_simple_paths(graph, start, node)
+            ]
+            if len(path_list) > 1:
+                graph = select_best_path(
+                    graph,
+                    path_list,
+                    [len(path) for path in path_list],
+                    [path_average_weight(graph, path) for path in path_list],
+                    delete_entry_node=True,
+                    delete_sink_node=False,
+                )
+                return solve_entry_tips(graph, get_starting_nodes(graph))
+    return graph
 
 
 def solve_out_tips(graph: DiGraph, ending_nodes: List[str]) -> DiGraph:
@@ -261,7 +279,25 @@ def solve_out_tips(graph: DiGraph, ending_nodes: List[str]) -> DiGraph:
     :param ending_nodes: (list) A list of ending nodes
     :return: (nx.DiGraph) A directed graph object
     """
-    pass
+    for node in graph.nodes:
+        if len(list(graph.successors(node))) > 1:
+            path_list = [
+                path
+                for end in ending_nodes
+                if end in graph and has_path(graph, node, end)
+                for path in all_simple_paths(graph, node, end)
+            ]
+            if len(path_list) > 1:
+                graph = select_best_path(
+                    graph,
+                    path_list,
+                    [len(path) for path in path_list],
+                    [path_average_weight(graph, path) for path in path_list],
+                    delete_entry_node=False,
+                    delete_sink_node=True,
+                )
+                return solve_out_tips(graph, get_sink_nodes(graph))
+    return graph
 
 
 def get_starting_nodes(graph: DiGraph) -> List[str]:
